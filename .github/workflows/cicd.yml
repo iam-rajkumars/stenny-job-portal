@@ -1,0 +1,66 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, dev]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      BACKEND_IMAGE: stenny1710/job-portal-backend
+      FRONTEND_IMAGE: stenny1710/job-portal-frontend
+      CLUSTER_NAME: job-portal-cluster
+      REGION: us-west-2
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        pip install -r backend/requirements.txt
+        pip install pytest pytest-cov
+
+    - name: Run Unit Tests
+      run: pytest --cov=backend/tests
+
+    - name: SonarQube Code Scan
+      uses: sonarsource/sonarqube-scan-action@v1.2
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    - name: Login to Docker Hub
+      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+    - name: Build & Push Backend Docker Image
+      run: |
+        docker build -t $BACKEND_IMAGE:latest ./backend
+        docker push $BACKEND_IMAGE:latest
+
+    - name: Build & Push Frontend Docker Image
+      run: |
+        docker build -t $FRONTEND_IMAGE:latest ./frontend
+        docker push $FRONTEND_IMAGE:latest
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.REGION }}
+
+    - name: Update Kubeconfig
+      run: aws eks update-kubeconfig --region $REGION --name $CLUSTER_NAME
+
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f k8s/backend-deployment.yaml
+        kubectl apply -f k8s/frontend-deployment.yaml
+
