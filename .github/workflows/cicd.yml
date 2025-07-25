@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: us-west-2
-  EKS_CLUSTER_NAME: stenny-job-portal
+  EKS_CLUSTER_NAME: stenny-eks-cluster
   DOCKER_IMAGE: stenny1710/job-portal-backend
 
 jobs:
