@@ -1,66 +1,95 @@
-name: CI/CD Pipeline
+name: CI/CD Pipeline for Job Portal
 
 on:
   push:
-    branches: [main, dev]
+    branches:
+      - main
+
+env:
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: stenny-job-portal
+  CLUSTER_NAME: stenny-eks-cluster
+  DEPLOYMENT_NAME: jobportal-deployment
+  CONTAINER_NAME: jobportal-container
+  IMAGE_TAG: latest
 
 jobs:
-  build-and-deploy:
+  build-and-test:
     runs-on: ubuntu-latest
 
-    env:
-      BACKEND_IMAGE: stenny1710/job-portal-backend
-      FRONTEND_IMAGE: stenny1710/job-portal-frontend
-      CLUSTER_NAME: job-portal-cluster
-      REGION: us-west-2
-
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: 3.10
 
     - name: Install Dependencies
       run: |
+        python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
-        pip install pytest pytest-cov
 
     - name: Run Unit Tests
-      run: pytest --cov=backend
+      run: |
+        PYTHONPATH=. pytest
 
-    - name: SonarQube Code Scan
-      uses: sonarsource/sonarqube-scan-action@v1.2
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@v2
+      with:
+        projectBaseDir: .
+        args: >
+          -Dsonar.projectKey=iam-rajkumars_stenny-job-portal
+          -Dsonar.organization=iam-rajkumars
+          -Dsonar.python.coverage.reportPaths=coverage.xml
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-    - name: Login to Docker Hub
-      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+  dockerize-and-push:
+    runs-on: ubuntu-latest
+    needs: build-and-test
 
-    - name: Build & Push Backend Docker Image
-      run: |
-        docker build -t $BACKEND_IMAGE:latest ./backend
-        docker push $BACKEND_IMAGE:latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-    - name: Build & Push Frontend Docker Image
-      run: |
-        docker build -t $FRONTEND_IMAGE:latest ./frontend
-        docker push $FRONTEND_IMAGE:latest
+    - name: Login to DockerHub
+      run: echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+
+    - name: Build Docker Image
+      run: docker build -t $DOCKER_USERNAME/stenny-job-portal:$IMAGE_TAG .
+
+    - name: Push to DockerHub
+      run: docker push $DOCKER_USERNAME/stenny-job-portal:$IMAGE_TAG
+
+  deploy-to-eks:
+    runs-on: ubuntu-latest
+    needs: dockerize-and-push
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.REGION }}
+        aws-region: ${{ env.AWS_REGION }}
 
-    - name: Update Kubeconfig
-      run: aws eks update-kubeconfig --region $REGION --name $CLUSTER_NAME
+    - name: Update kubeconfig
+      run: aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+
+    - name: Set Image in Deployment YAML
+      run: |
+        sed -i "s|image:.*|image: $DOCKER_USERNAME/stenny-job-portal:$IMAGE_TAG|g" k8s/deployment.yaml
 
     - name: Deploy to EKS
       run: |
-        kubectl apply -f k8s/backend-deployment.yaml
-        kubectl apply -f k8s/frontend-deployment.yaml
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
 
