@@ -6,76 +6,61 @@ on:
       - main
 
 jobs:
-  build-test-sonar-docker-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      AWS_REGION: us-west-2
-      ECR_REPOSITORY: stenny-job-portal
-      CLUSTER_NAME: stenny-eks-cluster
-      DEPLOYMENT_NAME: jobportal-deployment
-      CONTAINER_NAME: jobportal-container
-      IMAGE_TAG: latest
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: ⏬ Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'  # changed from '3.1' to a valid version
-          cache: 'pip'
+    - name: 🧼 Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install Backend Dependencies
-        working-directory: backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: 🧪 Install Dependencies (for SonarQube analysis)
+      run: |
+        pip install -r backend/requirements.txt
 
-      - name: Run Unit Tests
-        working-directory: backend
-        run: pytest
+    - name: 🧠 Static Code Analysis with SonarQube
+      uses: SonarSource/sonarcloud-github-action@v2
+      with:
+        projectBaseDir: ./backend
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_PROJECT_BASE_DIR: ./backend
 
-      - name: SonarQube Scan
-        uses: SonarSource/sonarcloud-github-action@v2
-        with:
-          projectBaseDir: .
-          args: >
-            -Dsonar.projectKey=stenny-job-portal
-            -Dsonar.organization=your-org-name
-            -Dsonar.host.url=https://sonarcloud.io
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+    - name: 🔐 Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: 🏗️ Build and Push Backend Docker Image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/jobportal-backend:latest ./backend
+        docker push ${{ secrets.DOCKER_USERNAME }}/jobportal-backend:latest
 
-      - name: Build and Push Docker Image
-        run: |
-          docker build -t $DOCKER_USERNAME/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $DOCKER_USERNAME/$ECR_REPOSITORY:$IMAGE_TAG
+    - name: 🏗️ Build and Push Frontend Docker Image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/jobportal-frontend:latest ./frontend
+        docker push ${{ secrets.DOCKER_USERNAME }}/jobportal-frontend:latest
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+    - name: ☸️ Set up Kubeconfig
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
+        export KUBECONFIG=$PWD/kubeconfig
 
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
-
-      - name: Deploy to EKS
-        run: |
-          kubectl set image deployment/$DEPLOYMENT_NAME $CONTAINER_NAME=$DOCKER_USERNAME/$ECR_REPOSITORY:$IMAGE_TAG
+    - name: 🚀 Deploy to Kubernetes
+      run: |
+        kubectl apply -f k8s/
 
