@@ -1,4 +1,4 @@
-name: CI/CD Pipeline for Job Portal
+name: CI/CD Pipeline for Stenny Job Portal
 
 on:
   push:
@@ -6,59 +6,65 @@ on:
       - main
 
 env:
-  CLUSTER_NAME: stenny-job-portal
   AWS_REGION: us-west-2
   ECR_REPOSITORY: stenny-job-portal
-  IMAGE_TAG: ${{ github.sha }}
+  CLUSTER_NAME: stenny-job-portal
+  ECR_REGISTRY: 804540873274.dkr.ecr.us-west-2.amazonaws.com
 
 jobs:
-  deploy:
-    name: Build, Analyze, and Deploy
+  build-test-deploy:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run unit tests
+      run: |
+        python -m pytest tests/
+
+    - name: Static code analysis
+      run: |
+        pip install pylint
+        pylint $(git ls-files '*.py')
+
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
+    - name: Log in to Amazon ECR
       id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+      uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build, Tag, and Push Docker image to Amazon ECR
+    - name: Build, tag, and push Docker image
       run: |
-        REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION --query 'repositories[0].repositoryUri' --output text)
-        docker build -t $REPOSITORY_URI:$IMAGE_TAG .
-        docker push $REPOSITORY_URI:$IMAGE_TAG
+        IMAGE_TAG=${{ github.sha }}
+        docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
       env:
-        IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+        ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
 
-    - name: SonarCloud Scan
-      uses: SonarSource/sonarqube-scan-action@v5.0.0
-      with:
-        args: >
-          -Dsonar.projectKey=iam-rajkumars_stenny-job-portal
-          -Dsonar.organization=iam-rajkumars
-          -Dsonar.host.url=https://sonarcloud.io
-          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
-          -Dsonar.sources=.
-          -Dsonar.python.version=3.11
-
-    - name: Setup kubectl
-      uses: azure/setup-kubectl@v3
-
-    - name: Update kubeconfig for EKS cluster
+    - name: Update kubeconfig for EKS
       run: |
-        aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
-    - name: Deploy using Argo CD
+    - name: Deploy to EKS
       run: |
-        echo "Triggering Argo CD deployment..."
-        # Replace the following with actual Argo CD CLI/API commands if needed.
+        IMAGE_TAG=${{ github.sha }}
+        kubectl set image deployment/stenny-job-portal-deployment stenny-job-portal=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
