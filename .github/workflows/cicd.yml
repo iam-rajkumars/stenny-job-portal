@@ -1,4 +1,4 @@
-name: CI-CD Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
@@ -6,77 +6,68 @@ on:
       - main
 
 env:
-  REGISTRY: docker.io
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+  CLUSTER_NAME: stenny-job-portal
+  REGION: us-west-2
+  DOCKER_IMAGE_NAME: stenny1710/stenny-job-portal
+  SONAR_PROJECT_KEY: iam-rajkumars_stenny-job-portal
+  SONAR_ORGANIZATION: iam-rajkumars
 
 jobs:
-  sonar-and-build:
-    name: SonarQube + Docker Build
+  ci-cd:
+    name: Deploy to EKS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      # Checkout code
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-      - name: Setup Node.js for frontend
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Frontend Dependencies
-        working-directory: frontend
-        run: npm install
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      # Set up Python (for backend)
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: SonarQube Scan
+      # Set up Node.js (for frontend)
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # SonarCloud Scan
+      - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         with:
-          projectBaseDir: ./backend
-          args: >
-            -Dsonar.projectKey=stenny-job-portal
-            -Dsonar.organization=your-org
-            -Dsonar.python.version=3.11
-            -Dsonar.sources=.
-            -Dsonar.host.url=https://sonarcloud.io
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          projectBaseDir: .
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
+          SONAR_ORGANIZATION: ${{ env.SONAR_ORGANIZATION }}
 
-      - name: Log in to Docker Hub
-        run: echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
+      # Docker Login
+      - name: Docker Login
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Build & Push Backend Image
+      # Build and Push Docker Images
+      - name: Build and Push Backend Image
         run: |
-          docker build -t $DOCKER_USERNAME/jobportal-backend:latest ./backend
-          docker push $DOCKER_USERNAME/jobportal-backend:latest
+          docker build -t $DOCKER_IMAGE_NAME-backend:latest ./backend
+          docker push $DOCKER_IMAGE_NAME-backend:latest
 
-      - name: Build & Push Frontend Image
+      - name: Build and Push Frontend Image
         run: |
-          docker build -t $DOCKER_USERNAME/jobportal-frontend:latest ./frontend
-          docker push $DOCKER_USERNAME/jobportal-frontend:latest
+          docker build -t $DOCKER_IMAGE_NAME-frontend:latest ./frontend
+          docker push $DOCKER_IMAGE_NAME-frontend:latest
 
-  deploy:
-    name: Deploy to Kubernetes
-    needs: sonar-and-build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
+      # Set up Kubeconfig to Deploy into EKS
       - name: Set up Kubeconfig
         run: |
-          mkdir -p $HOME/.kube
-          echo "${KUBE_CONFIG_DATA}" | base64 -d > $HOME/.kube/config
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+          kubectl get nodes
 
-      - name: Deploy Backend
-        run: kubectl apply -f k8s/backend-deployment.yaml
-
-      - name: Deploy Frontend
-        run: kubectl apply -f k8s/frontend-deployment.yaml
+      # Deploy to Kubernetes using kubectl
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/
 
