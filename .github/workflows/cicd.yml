@@ -19,46 +19,43 @@ jobs:
     - name: ⏬ Checkout Code
       uses: actions/checkout@v4
 
-    - name: 🧼 Setup Python
+    - name: 🧼 Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
-    - name: 🧪 Install Dependencies (for SonarQube analysis)
-      run: |
-        pip install -r backend/requirements.txt
+    - name: 📦 Install Python Dependencies
+      run: pip install -r backend/requirements.txt
 
-    - name: 🧠 Static Code Analysis with SonarQube
+    - name: 🧠 Run SonarQube Analysis
       uses: SonarSource/sonarcloud-github-action@v2
       with:
-        projectBaseDir: ./backend
+        projectBaseDir: backend
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_PROJECT_BASE_DIR: ./backend
 
     - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: 🔐 Login to Docker Hub
+    - name: 🔐 Log in to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: 🏗️ Build and Push Backend Docker Image
+    - name: 📦 Build and Push Backend Image
       run: |
-        docker build -t ${{ secrets.DOCKER_USERNAME }}/jobportal-backend:latest ./backend
-        docker push ${{ secrets.DOCKER_USERNAME }}/jobportal-backend:latest
+        docker build -t $DOCKER_USERNAME/jobportal-backend:latest ./backend
+        docker push $DOCKER_USERNAME/jobportal-backend:latest
 
-    - name: 🏗️ Build and Push Frontend Docker Image
+    - name: 📦 Build and Push Frontend Image
       run: |
-        docker build -t ${{ secrets.DOCKER_USERNAME }}/jobportal-frontend:latest ./frontend
-        docker push ${{ secrets.DOCKER_USERNAME }}/jobportal-frontend:latest
+        docker build -t $DOCKER_USERNAME/jobportal-frontend:latest ./frontend
+        docker push $DOCKER_USERNAME/jobportal-frontend:latest
 
     - name: ☸️ Set up Kubeconfig
       run: |
-        echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
-        export KUBECONFIG=$PWD/kubeconfig
+        echo "$KUBE_CONFIG_DATA" | base64 -d > $HOME/.kube/config
 
     - name: 🚀 Deploy to Kubernetes
       run: |
