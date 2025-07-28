@@ -1,16 +1,16 @@
-name: Deploy Job Portal Backend
+name: Deploy to EC2 and Shutdown
 
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -18,33 +18,35 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
-        working-directory: backend
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Build Docker Image
-        run: docker build -t stenny1710/job-portal-backend ./backend
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "stenny17" --password-stdin
 
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-
-      - name: Push Docker Image to Docker Hub
-        run: docker push stenny1710/job-portal-backend
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
-
-      - name: Update K8s Deployment via Argo CD
+      - name: Build Docker image
         run: |
-          echo "Triggering Argo CD Sync..."  # Replace this with your ArgoCD sync logic
+          docker build -t stenny17/job-portal-backend .
 
-      - name: Stop EC2 Instances After Deployment
+      - name: Push Docker image
         run: |
-          aws ec2 stop-instances --instance-ids i-07d27d076e0036dfd i-08480268c93eb1173
+          docker push stenny17/job-portal-backend
+
+      - name: Deploy to EC2 Instance
+        run: |
+          ssh -o StrictHostKeyChecking=no -i "${{ secrets.EC2_KEY }}" ec2-user@${{ secrets.EC2_IP }} << 'EOF'
+            docker pull stenny17/job-portal-backend
+            docker stop job-backend || true && docker rm job-backend || true
+            docker run -d --name job-backend -p 8000:8000 stenny17/job-portal-backend
+          EOF
+
+      - name: Auto shutdown EC2 instances
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-west-2
+        run: |
+          aws ec2 stop-instances --instance-ids i-07d27d076e0036dfd i-08480268c93eb1173 --region us-west-2
 
