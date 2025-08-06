@@ -1,4 +1,4 @@
-name: Deploy Main Code to Main and Feature-1.0
+name: Deploy to EKS
 
 on:
   push:
@@ -14,46 +14,37 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "stenny17" --password-stdin
-
-      - name: Build Docker image from main
-        run: docker build -t stenny17/job-portal-backend:latest .
-
-      - name: Push Docker image
-        run: docker push stenny17/job-portal-backend:latest
-
-      - name: Save EC2 Key
         run: |
-          echo "${{ secrets.EC2_KEY }}" > ec2_key.pem
-          chmod 600 ec2_key.pem
+          printf '%s' "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Deploy to Main EC2 (Production)
+      - name: Build and Push Docker Image
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ec2-user@${{ secrets.PROD_EC2_IP }} << 'EOF'
-            docker pull stenny17/job-portal-backend:latest
-            docker stop job-backend || true && docker rm job-backend || true
-            docker run -d --name job-backend -p 8000:8000 stenny17/job-portal-backend:latest
-          EOF
+          IMAGE=stenny17/job-portal-backend:latest
+          docker build -t $IMAGE .
+          docker push $IMAGE
 
-      - name: Deploy to Feature-1.0 EC2
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ec2-user@${{ secrets.FEATURE1_EC2_IP }} << 'EOF'
-            docker pull stenny17/job-portal-backend:latest
-            docker stop job-backend || true && docker rm job-backend || true
-            docker run -d --name job-backend -p 8000:8000 stenny17/job-portal-backend:latest
-          EOF
-
-      - name: Install AWS CLI
+      - name: Install AWS CLI & kubectl
         run: |
           sudo apt-get update
           sudo apt-get install -y awscli
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-      - name: Auto shutdown Feature-1.0 EC2 after deployment
+      - name: Configure kubectl for EKS
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          aws ec2 stop-instances \
-            --instance-ids ${{ secrets.FEATURE1_INSTANCE_ID }} \
-            --region us-west-2
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Update image in deployment.yaml
+        run: |
+          sed -i "s|image: .*|image: stenny17/job-portal-backend:latest|g" k8s/deployment.yaml
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/job-portal-backend
 
