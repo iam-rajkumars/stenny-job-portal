@@ -3,8 +3,8 @@ name: Deploy to EKS
 on:
   push:
     branches:
-      - master
-      - v-1.0
+      - main
+      - feature-1.0
 
 jobs:
   deploy:
