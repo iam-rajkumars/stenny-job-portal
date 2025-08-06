@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: job-portal-backend
+  namespace: job-portal
   labels:
     app: job-portal
 spec:
@@ -15,11 +16,8 @@ spec:
         app: job-portal
     spec:
       containers:
-        - name: job-portal-backend
-          image: docker.io/stenny17/job-portal-backend:latest
-          ports:
-            - containerPort: 8000
-          env:
-            - name: ENVIRONMENT
-              value: "production"
+      - name: job-portal-backend
+        image: stenny17/job-portal-backend:latest
+        ports:
+        - containerPort: 8000
 

@@ -1,7 +1,8 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: job-portal-backend-service
+  name: job-portal-service
+  namespace: job-portal
 spec:
   type: LoadBalancer
   selector:
