@@ -20,7 +20,7 @@ jobs:
       - name: Build and Push Docker Image
         run: |
           IMAGE=stenny17/job-portal-backend:latest
-          docker build -t $IMAGE .
+          docker build -t $IMAGE -f backend/Dockerfile backend/
           docker push $IMAGE
 
       - name: Install AWS CLI & kubectl
