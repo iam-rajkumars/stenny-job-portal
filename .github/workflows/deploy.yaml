@@ -22,7 +22,7 @@ jobs:
           aws-region: us-west-2
 
       - name: Set up kubectl with EKS
-        uses: aws-actions/eks-setup-kubectl@v4
+        uses: aws-actions/eks-setup-kubectl@v3
         with:
           cluster-name: stenny-eks
           region: us-west-2
