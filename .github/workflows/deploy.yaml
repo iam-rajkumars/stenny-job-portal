@@ -1,9 +1,9 @@
-name: Deploy to EC2 and Shutdown
+name: Deploy Main Code to Main and Feature-1.0
 
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   deploy:
@@ -13,40 +13,47 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
       - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "stenny17" --password-stdin
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "stenny1710" --password-stdin
 
-      - name: Build Docker image
-        run: |
-          docker build -t stenny17/job-portal-backend .
+      - name: Build Docker image from main
+        run: docker build -t stenny1710/job-portal-backend:latest .
 
       - name: Push Docker image
-        run: |
-          docker push stenny17/job-portal-backend
+        run: docker push stenny1710/job-portal-backend:latest
 
-      - name: Deploy to EC2 Instance
+      - name: Save EC2 Key
         run: |
-          ssh -o StrictHostKeyChecking=no -i "${{ secrets.EC2_KEY }}" ec2-user@${{ secrets.EC2_IP }} << 'EOF'
-            docker pull stenny17/job-portal-backend
+          echo "${{ secrets.EC2_KEY }}" > ec2_key.pem
+          chmod 600 ec2_key.pem
+
+      - name: Deploy to Main EC2 (Production)
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ec2-user@${{ secrets.PROD_EC2_IP }} << 'EOF'
+            docker pull stenny1710/job-portal-backend:latest
             docker stop job-backend || true && docker rm job-backend || true
-            docker run -d --name job-backend -p 8000:8000 stenny17/job-portal-backend
+            docker run -d --name job-backend -p 8000:8000 stenny1710/job-portal-backend:latest
           EOF
 
-      - name: Auto shutdown EC2 instances
+      - name: Deploy to Feature-1.0 EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ec2-user@${{ secrets.FEATURE1_EC2_IP }} << 'EOF'
+            docker pull stenny1710/job-portal-backend:latest
+            docker stop job-backend || true && docker rm job-backend || true
+            docker run -d --name job-backend -p 8000:8000 stenny1710/job-portal-backend:latest
+          EOF
+
+      - name: Install AWS CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y awscli
+
+      - name: Auto shutdown Feature-1.0 EC2 after deployment
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-west-2
         run: |
-          aws ec2 stop-instances --instance-ids i-07d27d076e0036dfd i-08480268c93eb1173 --region us-west-2
+          aws ec2 stop-instances \
+            --instance-ids ${{ secrets.FEATURE1_INSTANCE_ID }} \
+            --region us-west-2
 
