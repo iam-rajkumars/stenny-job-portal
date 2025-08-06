@@ -21,28 +21,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "stenny17" --password-stdin
-
-      - name: Build and Push Docker Image
-        run: |
-          IMAGE=stenny17/job-portal-backend:latest
-          docker build -t $IMAGE ./backend
-          docker push $IMAGE
-
       - name: Install kubectl
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --region us-west-2 --name stenny-eks
+        run: |
+          mkdir -p $HOME/.kube
+          aws eks update-kubeconfig --region us-west-2 --name stenny-eks --kubeconfig $HOME/.kube/config
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl get nodes
 
       - name: Deploy to EKS
         env:
-          KUBECONFIG: ~/.kube/config
+          KUBECONFIG: $HOME/.kube/config
         run: |
-          kubectl get nodes
           kubectl apply -f k8s/deployment.yaml --validate=false
           kubectl apply -f k8s/service.yaml --validate=false
 
