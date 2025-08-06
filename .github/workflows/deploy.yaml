@@ -7,10 +7,11 @@ on:
 
 jobs:
   deploy:
+    name: Deploy to Amazon EKS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -20,21 +21,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
-      - name: Install kubectl
+      - name: Set up kubeconfig for EKS
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-      - name: Update kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          aws eks update-kubeconfig --region us-west-2 --name stenny-eks --kubeconfig $HOME/.kube/config
-          export KUBECONFIG=$HOME/.kube/config
+          mkdir -p ~/.kube
+          aws eks update-kubeconfig --region us-west-2 --name stenny-eks --kubeconfig ~/.kube/config
+          export KUBECONFIG=~/.kube/config
           kubectl get nodes
 
-      - name: Deploy to EKS
+      - name: Deploy to Kubernetes
         run: |
-          export KUBECONFIG=$HOME/.kube/config
           kubectl apply -f k8s/deployment.yaml --validate=false
           kubectl apply -f k8s/service.yaml --validate=false
 
