@@ -21,12 +21,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
-      # Try eks-setup-kubectl@v2 first
-      - name: Set up kubectl with EKS
-        uses: aws-actions/eks-setup-kubectl@v2
-        with:
-          cluster-name: stenny-eks
-          region: us-west-2
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig --region us-west-2 --name stenny-eks
 
       - name: Deploy to Kubernetes
         run: |
