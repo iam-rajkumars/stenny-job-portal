@@ -21,15 +21,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
-      - name: Set up kubeconfig for EKS
-        run: |
-          mkdir -p ~/.kube
-          aws eks update-kubeconfig --region us-west-2 --name stenny-eks --kubeconfig ~/.kube/config
-          export KUBECONFIG=~/.kube/config
-          kubectl get nodes
+      - name: Set up kubectl with EKS
+        uses: aws-actions/eks-setup-kubectl@v4
+        with:
+          cluster-name: stenny-eks
+          region: us-west-2
 
       - name: Deploy to Kubernetes
         run: |
           kubectl apply -f k8s/deployment.yaml --validate=false
           kubectl apply -f k8s/service.yaml --validate=false
-
