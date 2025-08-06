@@ -38,14 +38,11 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --region us-west-2 --name stenny-eks
 
-      - name: Authenticate kubectl with EKS
-        uses: aws-actions/eks-authenticator@v1
-        with:
-          cluster-name: stenny-eks
-          region: us-west-2
-
       - name: Deploy to EKS
+        env:
+          KUBECONFIG: ~/.kube/config
         run: |
+          kubectl get nodes
           kubectl apply -f k8s/deployment.yaml --validate=false
           kubectl apply -f k8s/service.yaml --validate=false
 
