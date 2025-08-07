@@ -27,6 +27,10 @@ jobs:
           role-to-assume: arn:aws:iam::804540873274:role/github-actions-role
           role-session-name: github-actions-session
           aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -46,4 +50,4 @@ jobs:
         run: |
           kubectl apply -f k8s/
           kubectl set image deployment/stenny-backend stenny-backend=${{ steps.login-ecr.outputs.registry }}/$ECR_REPO:$IMAGE_TAG
-          kubectl rollout status deployment/stenny-backend
+          kubectl rollout status deployment/stenny-backend --timeout=120s
