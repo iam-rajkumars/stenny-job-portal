@@ -1,4 +1,4 @@
-name: CI/CD Pipeline with Argo CD
+name: Deploy to Kubernetes via Argo CD
 
 on:
   push:
@@ -6,58 +6,49 @@ on:
       - main
 
 env:
-  AWS_REGION: us-west-2
-  ECR_REPOSITORY: stenny1710/job-portal-backend
-  IMAGE_TAG: ${{ github.sha }}
+  DOCKER_IMAGE: docker.io/stenny1710/job-portal-backend
 
 jobs:
-  build-and-deploy:
+  deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source code
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build Docker image
+      - name: Build and Push Docker Image
         run: |
-          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ./backend
-          docker tag $ECR_REPOSITORY:$IMAGE_TAG ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+          docker build -t $DOCKER_IMAGE:latest ./backend
+          docker push $DOCKER_IMAGE:latest
 
-      - name: Push Docker image to ECR
+      - name: Install Argo CD CLI
         run: |
-          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
 
-      - name: Update Kubernetes deployment image
+      - name: Argo CD Login
         run: |
-          sed -i "s|image:.*|image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ env.IMAGE_TAG }}|" ./k8s/deployment.yaml
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure
 
-      - name: Commit updated k8s deployment.yaml
+      - name: Argo CD Sync Application
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git commit -am "Update image tag to $IMAGE_TAG"
-          git push
+          argocd app sync job-portal-backend
 
-      - name: Trigger Argo CD Sync
+      - name: Argo CD Wait for Sync
         run: |
-          curl -k -X POST https://argocd.yourdomain.com/api/v1/session \
-            -H "Content-Type: application/json" \
-            -d '{"username":"admin","password":"${{ secrets.ARGOCD_PASSWORD }}"}' > token.json
-
-          ARGOCD_AUTH_TOKEN=$(jq -r '.token' token.json)
-
-          curl -k -X POST https://argocd.yourdomain.com/api/v1/applications/job-portal/sync \
-            -H "Authorization: Bearer $ARGOCD_AUTH_TOKEN"
-
+          argocd app wait job-portal-backend --sync --health
 
