@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: us-west-2
-  EKS_CLUSTER_NAME: stenny-eks-cluster
+  EKS_CLUSTER_NAME: stenny-eks
   DOCKER_IMAGE: docker.io/stenny17/job-portal-backend
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
