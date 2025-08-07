@@ -1,61 +1,53 @@
-name: Deploy to Kubernetes via Argo CD
+name: Deploy Fullstack App to EKS
 
 on:
   push:
     branches:
       - main
 
-env:
-  AWS_REGION: us-west-2
-  EKS_CLUSTER_NAME: stenny-eks
-  DOCKER_IMAGE: docker.io/stenny17/job-portal-backend
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-
 jobs:
   deploy:
-    name: Build and Deploy
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'latest'
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
 
-      - name: Set up Kubeconfig
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      # Build and push backend
+      - name: Build & Push Backend Image
         run: |
-          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+          docker build -t stenny17/job-portal-backend:latest ./backend
+          docker push stenny17/job-portal-backend:latest
 
-      - name: Log in to Docker Hub
-        run: echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
-
-      - name: Build and Push Docker Image
+      # Build and push frontend
+      - name: Build & Push Frontend Image
         run: |
-          docker build -t $DOCKER_IMAGE:latest ./backend
-          docker push $DOCKER_IMAGE:latest
+          docker build -t stenny17/job-portal-frontend:latest ./frontend
+          docker push stenny17/job-portal-frontend:latest
 
-      - name: Deploy using Argo CD CLI
-        env:
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
-          ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
+      # Deploy to EKS
+      - name: Apply Kubernetes Manifests
         run: |
-          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          chmod +x argocd
-          sudo mv argocd /usr/local/bin/argocd
-
-          argocd login $ARGOCD_SERVER --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
-          argocd app sync job-portal
-          argocd app wait job-portal
+          kubectl apply -f ./k8s/deployment.yaml
+          kubectl apply -f ./k8s/service.yaml
 
