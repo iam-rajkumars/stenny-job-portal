@@ -1,5 +1,4 @@
-# .github/workflows/deploy.yaml
-name: Deploy to AWS EKS
+name: Deploy to AWS EKS Cluster
 
 on:
   push:
